@@ -1,0 +1,15 @@
+apiVersion: samplecontroller.evan.com/v1alpha1
+kind: Evan
+metadata:
+  name: evan
+  namespace: default
+spec:
+  deploymentConfig:
+    name: evan
+    replicas: 2
+    image: evanraisul/book-api
+  serviceConfig:
+    name: evan
+    type: NodePort
+    port: 3000
+  deletionPolicy: Delete
