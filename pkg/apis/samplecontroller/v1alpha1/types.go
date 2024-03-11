@@ -36,7 +36,7 @@ type Evan struct {
 type DeploymentConfig struct {
 	Name     string `json:"name,omitempty"`
 	Replicas *int32 `json:"replicas,omitempty"`
-	Image    string `json:"image,omitempty"`
+	Image    string `json:"image"`
 }
 
 type ServiceConfig struct {
@@ -61,7 +61,7 @@ type EvanSpec struct {
 
 // EvanStatus is the status for an Evan resource
 type EvanStatus struct {
-	AvailableReplicas int32 `json:"availableReplicas"`
+	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

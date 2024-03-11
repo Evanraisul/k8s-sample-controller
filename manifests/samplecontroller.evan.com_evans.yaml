@@ -70,11 +70,9 @@ spec:
           status:
             description: EvanStatus is the status for an Evan resource
             properties:
-              '  ':
+              availableReplicas:
                 format: int32
                 type: integer
-            required:
-            - '  '
             type: object
         required:
         - spec

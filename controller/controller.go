@@ -259,6 +259,8 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 		}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// Evan resource to be synced.
+		//fmt.Println(ctx)
+		//	fmt.Println(key)
 		if err := c.syncHandler(ctx, key); err != nil {
 			// Put the item back on the workqueue to handle any transient errors.
 			c.workqueue.AddRateLimited(key)
@@ -286,13 +288,117 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	logger := klog.LoggerWithValues(klog.FromContext(ctx), "resourceName", key)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-		return nil
-	}
+	//fmt.Println(namespace)
+	//fmt.Println()
+	//if err != nil {
+	//	utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+	//	return nil
+	//}
 
 	// Get the Evan resource with this namespace/name
 	Evan, err := c.evansLister.Evans(namespace).Get(name)
+	//fmt.Println(Evan)
+	//fmt.Println()
+	//if err != nil {
+	// The Evan resource may no longer exist, in which case we stop
+	// processing.
+	//	if errors.IsNotFound(err) {
+	//	utilruntime.HandleError(fmt.Errorf("Evan '%s' in work queue no longer exists", key))
+	//	return nil
+	//}
+	//return err
+	//}
+
+	deploymentName := Evan.Spec.DeploymentConfig.Name
+	//fmt.Println(deploymentName)
+	//fmt.Println()
+	if deploymentName == "" {
+		deploymentName = Evan.Name + "-deployment"
+		Evan.Spec.DeploymentConfig.Name = deploymentName
+	}
+
+	// Get the deployment with the name specified in Evan.spec
+	deployment, err := c.deploymentsLister.Deployments(Evan.Namespace).Get(deploymentName)
+	// If the resource doesn't exist, we'll create it
+	if errors.IsNotFound(err) {
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Create(context.TODO(), newDeployment(Evan), metav1.CreateOptions{})
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		log.Printf("\ndeployment %s created .....\n", deployment.Name)
+	}
+
+	// If an error occurs during Get/Create, we'll requeue the item so we can
+	// attempt processing again later. This could have been caused by a
+	// temporary network failure, or any other transient reason.
+
+	// If the Deployment is not controlled by this Evan resource, we should log
+	// a warning to the event recorder and return error msg.
+	if !metav1.IsControlledBy(deployment, Evan) {
+		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
+		c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
+		//return fmt.Errorf("%s", msg)
+	}
+
+	// If this number of the replicas on the Evan resource is specified, and the
+	// number does not equal the current desired replicas on the Deployment, we
+	// should update the Deployment resource.
+	if Evan.Spec.DeploymentConfig.Replicas != nil && *Evan.Spec.DeploymentConfig.Replicas != *deployment.Spec.Replicas {
+		logger.V(4).Info("Update deployment resource", "currentReplicas", *Evan.Spec.DeploymentConfig.Replicas, "desiredReplicas", *deployment.Spec.Replicas)
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	// If an error occurs during Update, we'll requeue the item so we can
+	// attempt processing again later. This could have been caused by a
+	// temporary network failure, or any other transient reason.
+	//err = c.updateevanstatus(Evan, deployment)
+	if err != nil {
+		return err
+	}
+
+	// If Deployment Name Change ------------------------------------------------
+	if Evan.Spec.DeploymentConfig.Name != "" && Evan.Spec.DeploymentConfig.Name != deployment.ObjectMeta.Name {
+		logger.V(4).Info("Update deployment resource", "currentName", Evan.Spec.DeploymentConfig.Name, "desiredName", deployment.ObjectMeta.Name)
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	// If an error occurs during Update, we'll requeue the item so we can
+	// attempt processing again later. This could have been caused by a
+	// temporary network failure, or any other transient reason.
+	//err = c.updateevanstatus(Evan, deployment)
+	//if err != nil {
+	//	return err
+	//}
+	// -----------------------------------------------------------------------------------------
+
+	// If Deployment Image Change ------------------------------------------------
+	if Evan.Spec.DeploymentConfig.Image != "" && Evan.Spec.DeploymentConfig.Image != deployment.Spec.Template.Spec.Containers[0].Image {
+		logger.V(4).Info("Update deployment resource", "currentImage", Evan.Spec.DeploymentConfig.Image, "desiredImage", deployment.Spec.Template.Spec.Containers[0].Image)
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	// If an error occurs during Update, we'll requeue the item so we can
+	// attempt processing again later. This could have been caused by a
+	// temporary network failure, or any other transient reason.
+
+	err = c.updateevanstatus(Evan, deployment)
+	if err != nil {
+		return err
+	}
+	// -----------------------------------------------------------------------------------------
+
+	// Service Get-----------------------------------------------------------------------------
+	Evan, err = c.evansLister.Evans(namespace).Get(name)
 	if err != nil {
 		// The Evan resource may no longer exist, in which case we stop
 		// processing.
@@ -302,89 +408,19 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		}
 		return err
 	}
-
-	deploymentName := Evan.Spec.DeploymentConfig.Name
-	if deploymentName == "" {
-		deploymentName = Evan.Name + "-deployment"
-	}
-
-	// Get the deployment with the name specified in Evan.spec
-	deployment, err := c.deploymentsLister.Deployments(Evan.Namespace).Get(deploymentName)
-	// If the resource doesn't exist, we'll create it
-	if errors.IsNotFound(err) {
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Create(context.TODO(), newDeployment(Evan), metav1.CreateOptions{})
-	}
-
-	// If an error occurs during Get/Create, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	if err != nil {
-		return err
-	}
-
-	// If the Deployment is not controlled by this Evan resource, we should log
-	// a warning to the event recorder and return error msg.
-	if !metav1.IsControlledBy(deployment, Evan) {
-		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-		c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
-		return fmt.Errorf("%s", msg)
-	}
-
-	// If this number of the replicas on the Evan resource is specified, and the
-	// number does not equal the current desired replicas on the Deployment, we
-	// should update the Deployment resource.
-	if Evan.Spec.DeploymentConfig.Replicas != nil && *Evan.Spec.DeploymentConfig.Replicas != *deployment.Spec.Replicas {
-		logger.V(4).Info("Update deployment resource", "currentReplicas", *Evan.Spec.DeploymentConfig.Replicas, "desiredReplicas", *deployment.Spec.Replicas)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
-	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	err = c.updateevanstatus(Evan, deployment)
-	if err != nil {
-		return err
-	}
-
-	// If Deployment Name Change ------------------------------------------------
-	if Evan.Spec.DeploymentConfig.Name != "" && Evan.Spec.DeploymentConfig.Name != deployment.ObjectMeta.Name {
-		logger.V(4).Info("Update deployment resource", "currentName", Evan.Spec.DeploymentConfig.Name, "desiredName", deployment.ObjectMeta.Name)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
-	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	err = c.updateevanstatus(Evan, deployment)
-	if err != nil {
-		return err
-	}
-	// -----------------------------------------------------------------------------------------
-
-	// If Deployment Image Change ------------------------------------------------
-	if Evan.Spec.DeploymentConfig.Image != "" && Evan.Spec.DeploymentConfig.Image != deployment.Spec.Template.Spec.Containers[0].Image {
-		logger.V(4).Info("Update deployment resource", "currentImage", Evan.Spec.DeploymentConfig.Image, "desiredImage", deployment.Spec.Template.Spec.Containers[0].Image)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
-	}
-
-	// If an error occurs during Update, we'll requeue the item so we can
-	// attempt processing again later. This could have been caused by a
-	// temporary network failure, or any other transient reason.
-	err = c.updateevanstatus(Evan, deployment)
-	if err != nil {
-		return err
-	}
-	// -----------------------------------------------------------------------------------------
-
-	// Service Get-----------------------------------------------------------------------------
 	serviceName := Evan.Spec.ServiceConfig.Name
+	//fmt.Println("My-Service1")
+	//fmt.Println(serviceName)
+	//fmt.Println()
 	if serviceName == "" {
 		// We choose to absorb the error here as the worker would requeue the
 		// resource otherwise. Instead, the next time the resource is updated
 		// the resource will be queued again.
 		serviceName = Evan.Name + "-service"
+		Evan.Spec.ServiceConfig.Name = serviceName
 	}
-	service, err := c.serviceLister.Services(Evan.Namespace).Get(serviceName)
+
+	service, err := c.kubeclientset.CoreV1().Services(Evan.Namespace).Get(context.TODO(), serviceName, metav1.GetOptions{})
 
 	if errors.IsNotFound(err) {
 		service, err = c.kubeclientset.CoreV1().Services(Evan.Namespace).Create(context.TODO(), newService(Evan), metav1.CreateOptions{})
@@ -398,7 +434,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	if !metav1.IsControlledBy(service, Evan) {
 		msg := fmt.Sprintf(MessageResourceExists, service.Name)
 		c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
-		return fmt.Errorf("%s", msg)
+		//return fmt.Errorf("%s", msg)
 	}
 	// ----------------------------------------------------------------------------------------
 
@@ -407,12 +443,14 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		return err
 	}
 
-	c.recorder.Event(Evan, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
+	//c.recorder.Event(Evan, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
 
 	// DeletionPolicy --------------------------------------------------------------------------
 	deletionPolicy := Evan.Spec.DeletionPolicy
-
-	if deletionPolicy != "Delete" {
+	Evan, err = c.evansLister.Evans(namespace).Get(name)
+	//fmt.Println("Err")
+	//fmt.Println(err)
+	if deletionPolicy == "Delete" && err != nil {
 		deploymentName := Evan.Spec.DeploymentConfig.Name
 		err := c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Delete(context.TODO(), deploymentName, metav1.DeleteOptions{})
 		if err != nil {
@@ -422,6 +460,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		fmt.Printf("Successfully deleted Deployment %s\n", name)
 
 		serviceName := Evan.Spec.ServiceConfig.Name
+		fmt.Println(serviceName)
 		err = c.kubeclientset.CoreV1().Services(Evan.Namespace).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
 		if err != nil {
 			log.Println(err)
@@ -443,7 +482,8 @@ func (c *Controller) updateevanstatus(Evan *samplev1alpha1.Evan, deployment *app
 	// we must use Update instead of UpdateStatus to update the Status block of the Evan resource.
 	// UpdateStatus will not allow changes to the Spec of the resource,
 	// which is ideal for ensuring nothing other than resource status has been updated.
-	_, err := c.sampleclientset.SamplecontrollerV1alpha1().Evans(Evan.Namespace).UpdateStatus(context.TODO(), EvanCopy, metav1.UpdateOptions{})
+	_, err := c.sampleclientset.SamplecontrollerV1alpha1().Evans(Evan.Namespace).Update(context.TODO(), EvanCopy, metav1.UpdateOptions{})
+	//fmt.Println(err)
 	return err
 }
 
@@ -546,13 +586,12 @@ func newService(Evan *samplev1alpha1.Evan) *corev1.Service {
 	}
 	return &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "k8s.io/api/core/v1",
+			Kind: "Service",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: Evan.Spec.ServiceConfig.Name + "-service",
+			Name: Evan.Spec.ServiceConfig.Name,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Bookstore")),
+				*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
 			},
 		},
 		Spec: corev1.ServiceSpec{
