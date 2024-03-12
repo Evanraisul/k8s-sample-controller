@@ -290,24 +290,48 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	//fmt.Println(namespace)
 	//fmt.Println()
-	//if err != nil {
-	//	utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-	//	return nil
-	//}
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		return nil
+	}
 
 	// Get the Evan resource with this namespace/name
 	Evan, err := c.evansLister.Evans(namespace).Get(name)
+
 	//fmt.Println(Evan)
 	//fmt.Println()
-	//if err != nil {
-	// The Evan resource may no longer exist, in which case we stop
-	// processing.
-	//	if errors.IsNotFound(err) {
-	//	utilruntime.HandleError(fmt.Errorf("Evan '%s' in work queue no longer exists", key))
-	//	return nil
-	//}
-	//return err
-	//}
+	if err != nil {
+		//The Evan resource may no longer exist, in which case we stop processing.
+		if errors.IsNotFound(err) {
+			utilruntime.HandleError(fmt.Errorf("Evan '%s' in work queue no longer exists", key))
+			return nil
+		}
+		return err
+	}
+
+	//---------------------------------------------------------------------------------------------------------
+	var deletionPolicy samplev1alpha1.DeletionPolicy = Evan.Spec.DeletionPolicy
+	updateDeployment := newDeployment(Evan)
+	updateService := newService(Evan)
+
+	if deletionPolicy == "WipeOut" {
+		updateDeployment = newDeployment(Evan)
+		updateDeployment.OwnerReferences = []metav1.OwnerReference{
+			*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
+		}
+
+		updateService.OwnerReferences = []metav1.OwnerReference{
+			*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
+		}
+		updateService := newService(Evan)
+		if deletionPolicy == "WipeOut" {
+
+			updateService.OwnerReferences = []metav1.OwnerReference{
+				*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
+			}
+		}
+	}
+	//-------------------------------------------------------------------------------------------------------
 
 	deploymentName := Evan.Spec.DeploymentConfig.Name
 	//fmt.Println(deploymentName)
@@ -316,12 +340,12 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		deploymentName = Evan.Name + "-deployment"
 		Evan.Spec.DeploymentConfig.Name = deploymentName
 	}
-
 	// Get the deployment with the name specified in Evan.spec
-	deployment, err := c.deploymentsLister.Deployments(Evan.Namespace).Get(deploymentName)
+	deployment, err := c.deploymentsLister.Deployments(Evan.ObjectMeta.Namespace).Get(deploymentName)
 	// If the resource doesn't exist, we'll create it
+
 	if errors.IsNotFound(err) {
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Create(context.TODO(), newDeployment(Evan), metav1.CreateOptions{})
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Create(context.TODO(), updateDeployment, metav1.CreateOptions{})
 		if err != nil {
 			log.Println(err)
 			return err
@@ -329,6 +353,12 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		log.Printf("\ndeployment %s created .....\n", deployment.Name)
 	}
 
+	//---------------------------------------------------------------------
+	deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
+	if err != nil {
+		fmt.Println(err)
+	}
+	//----------------------------------------------------------------------
 	// If an error occurs during Get/Create, we'll requeue the item so we can
 	// attempt processing again later. This could have been caused by a
 	// temporary network failure, or any other transient reason.
@@ -338,7 +368,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	if !metav1.IsControlledBy(deployment, Evan) {
 		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
 		c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
-		//return fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	// If this number of the replicas on the Evan resource is specified, and the
@@ -346,7 +376,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	// should update the Deployment resource.
 	if Evan.Spec.DeploymentConfig.Replicas != nil && *Evan.Spec.DeploymentConfig.Replicas != *deployment.Spec.Replicas {
 		logger.V(4).Info("Update deployment resource", "currentReplicas", *Evan.Spec.DeploymentConfig.Replicas, "desiredReplicas", *deployment.Spec.Replicas)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -363,7 +393,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	// If Deployment Name Change ------------------------------------------------
 	if Evan.Spec.DeploymentConfig.Name != "" && Evan.Spec.DeploymentConfig.Name != deployment.ObjectMeta.Name {
 		logger.V(4).Info("Update deployment resource", "currentName", Evan.Spec.DeploymentConfig.Name, "desiredName", deployment.ObjectMeta.Name)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -381,7 +411,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	// If Deployment Image Change ------------------------------------------------
 	if Evan.Spec.DeploymentConfig.Image != "" && Evan.Spec.DeploymentConfig.Image != deployment.Spec.Template.Spec.Containers[0].Image {
 		logger.V(4).Info("Update deployment resource", "currentImage", Evan.Spec.DeploymentConfig.Image, "desiredImage", deployment.Spec.Template.Spec.Containers[0].Image)
-		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Update(context.TODO(), newDeployment(Evan), metav1.UpdateOptions{})
+		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -419,11 +449,10 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		serviceName = Evan.Name + "-service"
 		Evan.Spec.ServiceConfig.Name = serviceName
 	}
-
-	service, err := c.kubeclientset.CoreV1().Services(Evan.Namespace).Get(context.TODO(), serviceName, metav1.GetOptions{})
+	service, err := c.kubeclientset.CoreV1().Services(Evan.ObjectMeta.Namespace).Get(context.TODO(), serviceName, metav1.GetOptions{})
 
 	if errors.IsNotFound(err) {
-		service, err = c.kubeclientset.CoreV1().Services(Evan.Namespace).Create(context.TODO(), newService(Evan), metav1.CreateOptions{})
+		service, err = c.kubeclientset.CoreV1().Services(Evan.ObjectMeta.Namespace).Create(context.TODO(), updateService, metav1.CreateOptions{})
 		if err != nil {
 			log.Println(err)
 			return err
@@ -431,44 +460,21 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		log.Printf("\nservice %s created .....\n", service.Name)
 	}
 
-	if !metav1.IsControlledBy(service, Evan) {
-		msg := fmt.Sprintf(MessageResourceExists, service.Name)
-		c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
-		//return fmt.Errorf("%s", msg)
-	}
+	//if !metav1.IsControlledBy(service, Evan) {
+	//	msg := fmt.Sprintf(MessageResourceExists, service.Name)
+	//	c.recorder.Event(Evan, corev1.EventTypeWarning, ErrResourceExists, msg)
+	//return fmt.Errorf("%s", msg)
+	//}
 	// ----------------------------------------------------------------------------------------
-
+	service, err = c.kubeclientset.CoreV1().Services(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateService, metav1.UpdateOptions{})
 	if err != nil {
-		log.Println(err)
-		return err
+		fmt.Println(err)
 	}
+	//----------------------------------------------------------------------------------------------------
 
+	//----------------------------------------------------------------------------------------------------------
 	//c.recorder.Event(Evan, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
 
-	// DeletionPolicy --------------------------------------------------------------------------
-	deletionPolicy := Evan.Spec.DeletionPolicy
-	Evan, err = c.evansLister.Evans(namespace).Get(name)
-	//fmt.Println("Err")
-	//fmt.Println(err)
-	if deletionPolicy == "Delete" && err != nil {
-		deploymentName := Evan.Spec.DeploymentConfig.Name
-		err := c.kubeclientset.AppsV1().Deployments(Evan.Namespace).Delete(context.TODO(), deploymentName, metav1.DeleteOptions{})
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-		fmt.Printf("Successfully deleted Deployment %s\n", name)
-
-		serviceName := Evan.Spec.ServiceConfig.Name
-		fmt.Println(serviceName)
-		err = c.kubeclientset.CoreV1().Services(Evan.Namespace).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-		fmt.Printf("Successfully deleted Service %s\n", name)
-	}
-	// -----------------------------------------------------------------------------------------
 	return nil
 }
 
@@ -545,7 +551,7 @@ func (c *Controller) handleObject(obj interface{}) {
 // the Evan resource that 'owns' it.
 func newDeployment(Evan *samplev1alpha1.Evan) *appsv1.Deployment {
 	labels := map[string]string{
-		"app": "book-api",
+		"app": "my-book",
 	}
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -553,10 +559,7 @@ func newDeployment(Evan *samplev1alpha1.Evan) *appsv1.Deployment {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      Evan.Spec.DeploymentConfig.Name,
-			Namespace: Evan.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
-			},
+			Namespace: Evan.ObjectMeta.Namespace,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: Evan.Spec.DeploymentConfig.Replicas,
@@ -570,8 +573,13 @@ func newDeployment(Evan *samplev1alpha1.Evan) *appsv1.Deployment {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "book-api",
+							Name:  "my-book",
 							Image: Evan.Spec.DeploymentConfig.Image,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: Evan.Spec.ServiceConfig.Port,
+								},
+							},
 						},
 					},
 				},
@@ -582,24 +590,24 @@ func newDeployment(Evan *samplev1alpha1.Evan) *appsv1.Deployment {
 
 func newService(Evan *samplev1alpha1.Evan) *corev1.Service {
 	labels := map[string]string{
-		"app": "my-app",
+		"app": "my-book",
 	}
 	return &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Service",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: Evan.Spec.ServiceConfig.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
-			},
+			Name:      Evan.Spec.ServiceConfig.Name,
+			Namespace: Evan.ObjectMeta.Namespace,
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     Evan.Spec.ServiceConfig.Type,
 			Selector: labels,
 			Ports: []corev1.ServicePort{
 				corev1.ServicePort{
-					Port: Evan.Spec.ServiceConfig.Port,
+					Port:       Evan.Spec.ServiceConfig.Port,
+					TargetPort: Evan.Spec.ServiceConfig.TargetPort,
+					NodePort:   Evan.Spec.ServiceConfig.NodePort,
 				},
 			},
 		},

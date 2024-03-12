@@ -50,14 +50,24 @@ spec:
                   replicas:
                     format: int32
                     type: integer
+                required:
+                - image
                 type: object
               serviceConfig:
                 properties:
                   name:
                     type: string
+                  node_port:
+                    format: int32
+                    type: integer
                   port:
                     format: int32
                     type: integer
+                  target_port:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    x-kubernetes-int-or-string: true
                   type:
                     description: Service Type string describes ingress methods for
                       a service

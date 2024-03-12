@@ -11,5 +11,25 @@ spec:
   serviceConfig:
     name:
     type: NodePort
-    port: 3000
+    port: 4444
+    target_port: 4444
+    node_port: 30036
+  deletionPolicy: Delete
+---
+apiVersion: samplecontroller.evan.com/v1alpha1
+kind: Evan
+metadata:
+  name: example-evan
+  namespace: demo
+spec:
+  deploymentConfig:
+    name:
+    replicas: 2
+    image: evanraisul/book-api
+  serviceConfig:
+    name:
+    type: NodePort
+    port: 4444
+    target_port: 4444
+    node_port: 30044
   deletionPolicy: Delete

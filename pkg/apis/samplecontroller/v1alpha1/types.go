@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // +genclient
@@ -40,9 +41,11 @@ type DeploymentConfig struct {
 }
 
 type ServiceConfig struct {
-	Name string             `json:"name,omitempty"`
-	Type corev1.ServiceType `json:"type,omitempty"`
-	Port int32              `json:"port,omitempty"`
+	Name       string             `json:"name,omitempty"`
+	Type       corev1.ServiceType `json:"type,omitempty"`
+	Port       int32              `json:"port,omitempty"`
+	TargetPort intstr.IntOrString `json:"target_port,omitempty"`
+	NodePort   int32              `json:"node_port,omitempty"`
 }
 
 type DeletionPolicy string
