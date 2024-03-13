@@ -19,18 +19,18 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:printcolumn:name="AvailableReplicas",type="integer",JSONPath=".status.availableReplicas"
 
 // Evan is a specification for a Evan resource
 type Evan struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta   `json:",inline,omitempty"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   EvanSpec   `json:"spec"`
+	Spec   EvanSpec   `json:"spec,omitempty"`
 	Status EvanStatus `json:"status,omitempty"`
 }
 
@@ -44,7 +44,7 @@ type ServiceConfig struct {
 	Name       string             `json:"name,omitempty"`
 	Type       corev1.ServiceType `json:"type,omitempty"`
 	Port       int32              `json:"port,omitempty"`
-	TargetPort intstr.IntOrString `json:"target_port,omitempty"`
+	TargetPort int32              `json:"target_port,omitempty"`
 	NodePort   int32              `json:"node_port,omitempty"`
 }
 
@@ -57,22 +57,22 @@ const (
 
 // EvanSpec is the spec for an Evan resource
 type EvanSpec struct {
-	DeploymentConfig DeploymentConfig `json:"deploymentConfig"`
-	ServiceConfig    ServiceConfig    `json:"serviceConfig"`
+	DeploymentConfig DeploymentConfig `json:"deploymentConfig,omitempty"`
+	ServiceConfig    ServiceConfig    `json:"serviceConfig,omitempty"`
 	DeletionPolicy   DeletionPolicy   `json:"deletionPolicy,omitempty"`
 }
 
 // EvanStatus is the status for an Evan resource
 type EvanStatus struct {
-	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+	AvailableReplicas int32 `json:"availableReplicas"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // EvanList is a list of Evan resources
 type EvanList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.TypeMeta `json:",inline,omitempty"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 
-	Items []Evan `json:"items"`
+	Items []Evan `json:"items,omitempty"`
 }
