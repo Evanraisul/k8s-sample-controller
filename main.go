@@ -45,6 +45,10 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
+	// Initialise the informer resource and here we will be using sharedinformer factory instead of simple informers
+	// because in case if we need to query / watch multiple Group versions, and it’s a good practise as well
+	// NewSharedInformerFactory will create a new ShareInformerFactory for "all namespaces"
+	// 30*time.Second is the re-sync period to update the in-memory cache of informer //
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
 

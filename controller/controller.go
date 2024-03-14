@@ -317,11 +317,11 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 	// Get Resource CreationTimestamp
 	resourceCreationTimestamp := Evan.CreationTimestamp.Unix()
-	// Deployment Name
-	deploymentName := "evan-" + Evan.Name + "-" + Evan.Spec.DeploymentConfig.Name + "-" + strconv.FormatInt(resourceCreationTimestamp, 10)
 
+	// Deployment Name
+	deploymentName := fmt.Sprintf("%s-%s-%s", Evan.Name, Evan.Spec.DeploymentConfig.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
 	if Evan.Spec.DeploymentConfig.Name == "" {
-		deploymentName = "evan-" + Evan.Name + "-deployment-" + strconv.FormatInt(resourceCreationTimestamp, 10)
+		deploymentName = fmt.Sprintf("%s-%s", Evan.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
 	}
 
 	// Check DeletionPolicy
@@ -400,13 +400,12 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 
 	// Service Name
-	serviceName := "evan-" + Evan.Name + "-" + Evan.Spec.ServiceConfig.Name + "-" + strconv.FormatInt(resourceCreationTimestamp, 10)
+	serviceName := fmt.Sprintf("%s-%s-%s", Evan.Name, Evan.Spec.ServiceConfig.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
 	if Evan.Spec.ServiceConfig.Name == "" {
 		// We choose to absorb the error here as the worker would requeue the
 		// resource otherwise. Instead, the next time the resource is updated
 		// the resource will be queued again.
-		serviceName = "evan-" + Evan.Name + "-service-" + strconv.FormatInt(resourceCreationTimestamp, 10)
-		//Evan.Spec.ServiceConfig.Name = serviceName
+		serviceName = fmt.Sprintf("%s-%s", Evan.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
 	}
 
 	// Get the service port
