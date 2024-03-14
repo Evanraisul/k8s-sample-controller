@@ -409,10 +409,17 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		//Evan.Spec.ServiceConfig.Name = serviceName
 	}
 
+	// Get the service port
+	servicePort := Evan.Spec.ServiceConfig.Port
+	if servicePort == 0 {
+		utilruntime.HandleError(fmt.Errorf("Service Port is not provided by user"))
+		return nil
+	}
+
 	// If TargetPort is not defined by User, set the TargetPort as same as Port
 	serviceTargetPort := Evan.Spec.ServiceConfig.TargetPort
 	if Evan.Spec.ServiceConfig.TargetPort == 0 {
-		serviceTargetPort = Evan.Spec.ServiceConfig.Port
+		serviceTargetPort = servicePort
 	}
 
 	// If deletion Policy is WipeOut, then set the owner Reference
