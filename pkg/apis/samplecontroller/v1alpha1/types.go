@@ -44,8 +44,8 @@ type ServiceConfig struct {
 	Name       string             `json:"name,omitempty"`
 	Type       corev1.ServiceType `json:"type,omitempty"`
 	Port       int32              `json:"port,omitempty"`
-	TargetPort int32              `json:"target_port,omitempty"`
-	NodePort   int32              `json:"node_port,omitempty"`
+	TargetPort int32              `json:"targetPort,omitempty"`
+	NodePort   int32              `json:"nodePort,omitempty"`
 }
 
 type DeletionPolicy string

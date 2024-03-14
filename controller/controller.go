@@ -289,6 +289,53 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 	return true
 }
 
+func generateDeploymentName(evanName string, evanDeploymentName string, resourceCreationTimestamp int64) string {
+	deploymentName := fmt.Sprintf("%s-%s-%s", evanName, evanDeploymentName, strconv.FormatInt(resourceCreationTimestamp, 10))
+	if evanDeploymentName == "" {
+		deploymentName = fmt.Sprintf("%s-%s", evanName, strconv.FormatInt(resourceCreationTimestamp, 10))
+	}
+	return deploymentName
+}
+func generateServiceName(evanName string, evanServiceName string, resourceCreationTimestamp int64) string {
+	deploymentName := fmt.Sprintf("%s-%s-%s", evanName, evanServiceName, strconv.FormatInt(resourceCreationTimestamp, 10))
+	if evanServiceName == "" {
+		deploymentName = fmt.Sprintf("%s-%s", evanName, strconv.FormatInt(resourceCreationTimestamp, 10))
+	}
+	return deploymentName
+}
+
+func isReplicasChanged(evanReplicas int32, deploymentReplicas int32) bool {
+	if evanReplicas != 0 && evanReplicas != deploymentReplicas {
+		return true
+	}
+	return false
+}
+func isDeploymentNameChanged(evanDeploymentName string, deploymentName string) bool {
+	if evanDeploymentName != "" && evanDeploymentName != deploymentName {
+		return true
+	}
+	return false
+}
+func isDeploymentImageChanged(evanDeploymentImage string, deploymentImage string) bool {
+	if evanDeploymentImage != "" && evanDeploymentImage != deploymentImage {
+		return true
+	}
+	return false
+}
+
+func isServiceNameChanged(evanServiceName string, serviceName string) bool {
+	if evanServiceName != "" && evanServiceName != serviceName {
+		return true
+	}
+	return false
+}
+func isServicePortChanged(evanServicePort int32, servicePort int32) bool {
+	if evanServicePort != 0 && evanServicePort != servicePort {
+		return true
+	}
+	return false
+}
+
 // syncHandler compares the actual state with the desired, and attempts to
 // converge the two. It then updates the Status block of the Evan resource
 // with the current status of the resource.
@@ -315,24 +362,20 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		}
 		return err
 	}
+
 	// Get Resource CreationTimestamp
 	resourceCreationTimestamp := Evan.CreationTimestamp.Unix()
-
 	// Deployment Name
-	deploymentName := fmt.Sprintf("%s-%s-%s", Evan.Name, Evan.Spec.DeploymentConfig.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
-	if Evan.Spec.DeploymentConfig.Name == "" {
-		deploymentName = fmt.Sprintf("%s-%s", Evan.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
-	}
+	deploymentName := generateDeploymentName(Evan.Name, Evan.Spec.DeploymentConfig.Name, resourceCreationTimestamp)
 
 	// Check DeletionPolicy
-	var deletionPolicy samplev1alpha1.DeletionPolicy = Evan.Spec.DeletionPolicy
 	if Evan.Spec.DeletionPolicy == "" {
 		Evan.Spec.DeletionPolicy = "WipeOut"
 	}
 
 	// If DeletionPolicy is WipeOut, add owner reference
 	updateDeployment := newDeployment(Evan, deploymentName)
-	if deletionPolicy == "WipeOut" {
+	if Evan.Spec.DeletionPolicy == "WipeOut" {
 		updateDeployment.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
 			*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
 		}
@@ -361,7 +404,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	// If this number of the replicas on the Evan resource is specified, and the
 	// number does not equal the current desired replicas on the Deployment, we
 	// should update the Deployment resource.
-	if Evan.Spec.DeploymentConfig.Replicas != nil && *Evan.Spec.DeploymentConfig.Replicas != *deployment.Spec.Replicas {
+	if isReplicasChanged(*Evan.Spec.DeploymentConfig.Replicas, *deployment.Spec.Replicas) {
 		logger.V(4).Info("Update deployment resource", "currentReplicas", *Evan.Spec.DeploymentConfig.Replicas, "desiredReplicas", *deployment.Spec.Replicas)
 		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
@@ -370,7 +413,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 
 	// If Deployment Name Change ------------------------------------------------
-	if Evan.Spec.DeploymentConfig.Name != "" && deploymentName != deployment.ObjectMeta.Name {
+	if isDeploymentNameChanged(deploymentName, deployment.ObjectMeta.Name) {
 		logger.V(4).Info("Update deployment resource", "currentName", deploymentName, "desiredName", deployment.ObjectMeta.Name)
 		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
@@ -379,7 +422,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 
 	// If Deployment Image Change ------------------------------------------------
-	if Evan.Spec.DeploymentConfig.Image != "" && Evan.Spec.DeploymentConfig.Image != deployment.Spec.Template.Spec.Containers[0].Image {
+	if isDeploymentImageChanged(Evan.Spec.DeploymentConfig.Image, deployment.Spec.Template.Spec.Containers[0].Image) {
 		logger.V(4).Info("Update deployment resource", "currentImage", Evan.Spec.DeploymentConfig.Image, "desiredImage", deployment.Spec.Template.Spec.Containers[0].Image)
 		deployment, err = c.kubeclientset.AppsV1().Deployments(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateDeployment, metav1.UpdateOptions{})
 		if err != nil {
@@ -400,13 +443,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 
 	// Service Name
-	serviceName := fmt.Sprintf("%s-%s-%s", Evan.Name, Evan.Spec.ServiceConfig.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
-	if Evan.Spec.ServiceConfig.Name == "" {
-		// We choose to absorb the error here as the worker would requeue the
-		// resource otherwise. Instead, the next time the resource is updated
-		// the resource will be queued again.
-		serviceName = fmt.Sprintf("%s-%s", Evan.Name, strconv.FormatInt(resourceCreationTimestamp, 10))
-	}
+	serviceName := generateServiceName(Evan.Name, Evan.Spec.ServiceConfig.Name, resourceCreationTimestamp)
 
 	// Get the service port
 	servicePort := Evan.Spec.ServiceConfig.Port
@@ -423,7 +460,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 
 	// If deletion Policy is WipeOut, then set the owner Reference
 	updateService := newService(Evan, serviceName, serviceTargetPort)
-	if deletionPolicy == "WipeOut" {
+	if Evan.Spec.DeletionPolicy == "WipeOut" {
 		updateService.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
 			*metav1.NewControllerRef(Evan, samplev1alpha1.SchemeGroupVersion.WithKind("Evan")),
 		}
@@ -448,8 +485,17 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 	}
 
 	// If Service Name Change, update the service
-	if serviceName != "" && serviceName != service.ObjectMeta.Name {
+	if isServiceNameChanged(serviceName, service.ObjectMeta.Name) {
 		logger.V(4).Info("Update Service resource", "currentName", serviceName, "desiredName", service.ObjectMeta.Name)
+		service, err = c.kubeclientset.CoreV1().Services(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateService, metav1.UpdateOptions{})
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	// If Service Port Change, update the service
+	if isServicePortChanged(servicePort, service.Spec.Ports[0].Port) {
+		logger.V(4).Info("Update Service resource", "currentName", servicePort, "desiredName", service.Spec.Ports[0].Port)
 		service, err = c.kubeclientset.CoreV1().Services(Evan.ObjectMeta.Namespace).Update(context.TODO(), updateService, metav1.UpdateOptions{})
 		if err != nil {
 			fmt.Println(err)
