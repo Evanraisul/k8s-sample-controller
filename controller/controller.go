@@ -581,66 +581,67 @@ func (c *Controller) handleObject(obj interface{}) {
 // the appropriate OwnerReferences on the resource so handleObject can discover
 // the Evan resource that 'owns' it.
 func newDeployment(Evan *samplev1alpha1.Evan, deploymentName string) *appsv1.Deployment {
+
+	deployment := &appsv1.Deployment{}
 	labels := map[string]string{
 		"app": "my-book",
 	}
-	return &appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Deployment",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      deploymentName,
-			Namespace: Evan.ObjectMeta.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: Evan.Spec.DeploymentConfig.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "my-book",
-							Image: Evan.Spec.DeploymentConfig.Image,
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: Evan.Spec.ServiceConfig.Port,
-								},
-							},
-						},
+	deployment.Labels = labels
+	deployment.TypeMeta.Kind = "Deployment"
+
+	deployment.ObjectMeta.Name = deploymentName
+	deployment.ObjectMeta.Namespace = Evan.ObjectMeta.Namespace
+
+	deployment.Spec.Replicas = Evan.Spec.DeploymentConfig.Replicas
+	deployment.Spec.Selector = &metav1.LabelSelector{
+		MatchLabels: labels,
+	}
+	deployment.Spec.Template.ObjectMeta = metav1.ObjectMeta{
+		Labels: labels,
+	}
+	deployment.Spec.Template.Spec = corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:  "my-book",
+				Image: Evan.Spec.DeploymentConfig.Image,
+				Ports: []corev1.ContainerPort{
+					{
+						ContainerPort: Evan.Spec.ServiceConfig.Port,
 					},
 				},
 			},
 		},
 	}
+	return deployment
 }
 
 func newService(Evan *samplev1alpha1.Evan, serviceName string, serviceTargetPort int32) *corev1.Service {
+
 	labels := map[string]string{
 		"app": "my-book",
 	}
-	return &corev1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Service",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      serviceName,
-			Namespace: Evan.ObjectMeta.Namespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Type:     Evan.Spec.ServiceConfig.Type,
-			Selector: labels,
-			Ports: []corev1.ServicePort{
-				corev1.ServicePort{
-					Port:       Evan.Spec.ServiceConfig.Port,
-					TargetPort: intstr.FromInt32(serviceTargetPort),
-					NodePort:   Evan.Spec.ServiceConfig.NodePort,
-				},
-			},
+	service := &corev1.Service{}
+	service.Labels = labels
+
+	service.TypeMeta = metav1.TypeMeta{
+		Kind: "Service",
+	}
+
+	service.ObjectMeta = metav1.ObjectMeta{
+		Name:      serviceName,
+		Namespace: Evan.ObjectMeta.Namespace,
+	}
+
+	service.Spec = corev1.ServiceSpec{
+		Type:     Evan.Spec.ServiceConfig.Type,
+		Selector: labels,
+	}
+	service.Spec.Ports = []corev1.ServicePort{
+		corev1.ServicePort{
+			Port:       Evan.Spec.ServiceConfig.Port,
+			TargetPort: intstr.FromInt32(serviceTargetPort),
+			NodePort:   Evan.Spec.ServiceConfig.NodePort,
 		},
 	}
+	return service
 }

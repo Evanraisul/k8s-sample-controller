@@ -5,24 +5,10 @@ metadata:
   namespace: default
 spec:
   deploymentConfig:
+    name: ovi
     replicas: 3
     image: evanraisul/book-api
   serviceConfig:
-    type: NodePort
-    port: 4444
-  deletionPolicy: WipeOut
----
-apiVersion: samplecontroller.evan.com/v1alpha1
-kind: Evan
-metadata:
-  name: example
-  namespace: demo
-spec:
-  deploymentConfig:
-    replicas: 2
-    image: evanraisul/book-api
-  serviceConfig:
-    name: xyz
     type: NodePort
     port: 4444
   deletionPolicy: WipeOut
