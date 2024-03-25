@@ -502,7 +502,7 @@ func (c *Controller) syncHandler(ctx context.Context, key string) error {
 		}
 	}
 
-	err = c.updateevan(Evan, deployment)
+	err = c.updateevan(Evan, updateDeployment)
 	if err != nil {
 		return err
 	}
